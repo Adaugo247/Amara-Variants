@@ -1,5 +1,5 @@
 ;; Genetic Variant Repository
-;; Improved implementation with expanded data modeling and sharing capabilities
+;; Implements genetic variant data management with comprehensive structure and error handling
 
 ;; Constants and Error Codes
 (define-constant CONTRACT-OWNER tx-sender)
@@ -12,7 +12,7 @@
 ;; Data Validation Constants
 (define-constant MAX-FREQUENCY-FACTOR u10000)  ;; 100.00% in decimals
 (define-constant MAX-EFFECT-RANGE 8000)        ;; Effect score in centimorgans (int)
-(define-constant MAX-LIST-SIZE u100)
+(define-constant MAX-LIST-SIZE u1000)
 
 ;; Data Structures
 (define-map genetic-variants
@@ -44,7 +44,7 @@
 ;; Researcher variant tracking
 (define-map variants-by-researcher
     { researcher: principal }
-    { variant-ids: (list 100 uint) }
+    { variant-ids: (list 1000 uint) }
 )
 
 ;; State Variables
@@ -78,26 +78,26 @@
     )
         (if is-add
             ;; Adding variant
-            (if (>= (len current-ids) u100)
+            (if (>= (len current-ids) u1000)
                 ERR-LIST-FULL
                 (ok (map-set variants-by-researcher
                     { researcher: researcher }
                     { variant-ids: (unwrap! (as-max-len? 
-                        (append current-ids variant-id) u100)
+                        (append current-ids variant-id) u1000)
                         ERR-LIST-FULL) }
                 )))
             ;; Removing variant
             (ok (map-set variants-by-researcher
                 { researcher: researcher }
-                { variant-ids: (filter not-equal-to-id current-ids variant-id) }
+                { variant-ids: (filter remove-variant-id current-ids) }
             ))
         )
     )
 )
 
 ;; Helper for filtering variant IDs
-(define-private (not-equal-to-id (list-id uint) (target-id uint)) 
-    (not (is-eq list-id target-id))
+(define-private (remove-variant-id (id uint)) 
+    (not (is-eq id id))
 )
 
 ;; Verifies variant ownership
@@ -206,6 +206,27 @@
                 })
             })
         ))
+    )
+)
+
+;; Transfers genetic variant research rights
+(define-public (transfer-variant (variant-id uint) (new-researcher principal))
+    (let ((variant (unwrap! (map-get? genetic-variants { variant-id: variant-id }) ERR-NOT-FOUND)))
+        ;; Verify ownership
+        (asserts! (is-variant-owner variant-id) ERR-NOT-AUTHORIZED)
+        
+        ;; Remove from current researcher's list
+        (try! (update-researcher-variant-list tx-sender variant-id false))
+        
+        ;; Add to new researcher's list
+        (try! (update-researcher-variant-list new-researcher variant-id true))
+        
+        ;; Update variant ownership
+        (map-set genetic-variants
+            { variant-id: variant-id }
+            (merge variant { researcher: new-researcher })
+        )
+        (ok true)
     )
 )
 
